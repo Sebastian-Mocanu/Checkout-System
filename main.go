@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 )
 
 type PricingRule struct {
@@ -18,8 +22,8 @@ type Checkout struct {
 }
 
 type ICheckout interface {
-	Scan(SKU string) error
-	GetTotalPrice() (int, error)
+	Scan(SKU string) (err error)
+	GetTotalPrice() (totalPrice int, err error)
 }
 
 func NewCheckout(pricingRules map[string]PricingRule) *Checkout {
@@ -56,34 +60,95 @@ func (c *Checkout) GetTotalPrice() (int, error) {
 	return total, nil
 }
 
+func (c *Checkout) GetAppliedPromotions() map[string]int {
+	appliedPromotions := make(map[string]int)
+	for sku, quantity := range c.ScannedItems {
+		rule := c.PricingRules[sku]
+		if rule.SpecialPrice.Quantity > 0 && quantity >= rule.SpecialPrice.Quantity {
+			appliedPromotions[sku] = quantity / rule.SpecialPrice.Quantity
+		}
+	}
+	return appliedPromotions
+}
+
 func main() {
-	pricingRules := map[string]PricingRule{
-		"A": {UnitPrice: 50, SpecialPrice: struct {
-			Quantity int
-			Price    int
-		}{Quantity: 3, Price: 130}},
-		"B": {UnitPrice: 30, SpecialPrice: struct {
-			Quantity int
-			Price    int
-		}{Quantity: 2, Price: 45}},
-		"C": {UnitPrice: 20},
-		"D": {UnitPrice: 15},
+	scanner := bufio.NewScanner(os.Stdin)
+	pricingRules := make(map[string]PricingRule)
+
+	fmt.Println("Welcome to the Supermarket Checkout System!")
+
+	fmt.Println("\nLet's set up the product catalogue.")
+	for {
+		fmt.Print("Enter product SKU (or press Enter to finish): ")
+		scanner.Scan()
+		sku := scanner.Text()
+		if sku == "" {
+			break
+		}
+
+		fmt.Printf("Enter unit price for %s: ", sku)
+		scanner.Scan()
+		unitPrice, _ := strconv.Atoi(scanner.Text())
+
+		rule := PricingRule{UnitPrice: unitPrice}
+
+		fmt.Printf("Is there a special offer for %s? (y/n): ", sku)
+		scanner.Scan()
+		if strings.ToLower(scanner.Text()) == "y" {
+			fmt.Print("Enter special offer quantity: ")
+			scanner.Scan()
+			quantity, _ := strconv.Atoi(scanner.Text())
+
+			fmt.Print("Enter special offer price: ")
+			scanner.Scan()
+			price, _ := strconv.Atoi(scanner.Text())
+
+			rule.SpecialPrice.Quantity = quantity
+			rule.SpecialPrice.Price = price
+		}
+
+		pricingRules[sku] = rule
 	}
 
 	checkout := NewCheckout(pricingRules)
 
-	items := []string{"A", "B", "A", "A", "B", "C", "D"}
-	for _, item := range items {
-		err := checkout.Scan(item)
+	fmt.Println("\nNow, let's scan items.")
+	for {
+		fmt.Print("Scan an item (enter SKU or press Enter to finish): ")
+		scanner.Scan()
+		sku := scanner.Text()
+		if sku == "" {
+			break
+		}
+
+		err := checkout.Scan(sku)
 		if err != nil {
-			fmt.Printf("Error scanning item %s: %v\n", item, err)
+			fmt.Println("Error:", err)
+		} else {
+			fmt.Println("Item scanned successfully.")
 		}
 	}
 
 	total, err := checkout.GetTotalPrice()
 	if err != nil {
-		fmt.Printf("Error calculating total price: %v\n", err)
-	} else {
-		fmt.Printf("Total price: %d\n", total)
+		fmt.Println("Error calculating total price:", err)
+		return
 	}
+
+	fmt.Println("\nCheckout Summary:")
+	fmt.Println("------------------")
+	for sku, quantity := range checkout.ScannedItems {
+		fmt.Printf("%s: %d x %d = %d\n", sku, quantity, checkout.PricingRules[sku].UnitPrice, quantity*checkout.PricingRules[sku].UnitPrice)
+	}
+
+	fmt.Println("\nApplied Promotions:")
+	fmt.Println("------------------")
+	for sku, count := range checkout.GetAppliedPromotions() {
+		rule := checkout.PricingRules[sku]
+		saving := (rule.SpecialPrice.Quantity*rule.UnitPrice - rule.SpecialPrice.Price) * count
+		fmt.Printf("%s: %d for %d applied %d times. You saved %d\n",
+			sku, rule.SpecialPrice.Quantity, rule.SpecialPrice.Price, count, saving)
+	}
+
+	fmt.Println("\nTotal Price:", total)
 }

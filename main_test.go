@@ -7,10 +7,11 @@ import (
 
 func TestCheckout(t *testing.T) {
 	type testCase struct {
-		name      string
-		items     []string
-		expected  int
-		errString string
+		name               string
+		items              []string
+		expectedTotal      int
+		expectedPromotions map[string]int
+		errString          string
 	}
 
 	pricingRules := map[string]PricingRule{
@@ -28,40 +29,67 @@ func TestCheckout(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name:      "Single item",
-			items:     []string{"A"},
-			expected:  50,
-			errString: "",
+			name:               "Single item",
+			items:              []string{"A"},
+			expectedTotal:      50,
+			expectedPromotions: map[string]int{},
+			errString:          "",
 		},
 		{
-			name:      "Multiple items without special pricing",
-			items:     []string{"A", "B", "C", "D"},
-			expected:  115,
-			errString: "",
+			name:               "Multiple items without special pricing",
+			items:              []string{"A", "B", "C", "D"},
+			expectedTotal:      115,
+			expectedPromotions: map[string]int{},
+			errString:          "",
 		},
 		{
-			name:      "Special pricing for A",
-			items:     []string{"A", "A", "A"},
-			expected:  130,
-			errString: "",
+			name:               "Special pricing for A",
+			items:              []string{"A", "A", "A"},
+			expectedTotal:      130,
+			expectedPromotions: map[string]int{"A": 1},
+			errString:          "",
 		},
 		{
-			name:      "Special pricing for B",
-			items:     []string{"B", "B"},
-			expected:  45,
-			errString: "",
+			name:               "Special pricing for B",
+			items:              []string{"B", "B"},
+			expectedTotal:      45,
+			expectedPromotions: map[string]int{"B": 1},
+			errString:          "",
 		},
 		{
-			name:      "Mixed items with special pricing",
-			items:     []string{"A", "A", "B", "B", "A", "C", "D"},
-			expected:  130 + 45 + 20 + 15,
-			errString: "",
+			name:               "Mixed items with special pricing",
+			items:              []string{"A", "A", "B", "B", "A", "C", "D"},
+			expectedTotal:      130 + 45 + 20 + 15,
+			expectedPromotions: map[string]int{"A": 1, "B": 1},
+			errString:          "",
 		},
 		{
-			name:      "Invalid item",
-			items:     []string{"A", "E"},
-			expected:  0,
-			errString: "invalid SKU: E",
+			name:               "Invalid item",
+			items:              []string{"A", "E"},
+			expectedTotal:      0,
+			expectedPromotions: map[string]int{},
+			errString:          "invalid SKU: E",
+		},
+		{
+			name:               "Multiple special offers for A",
+			items:              []string{"A", "A", "A", "A", "A", "A", "A"},
+			expectedTotal:      130 + 130 + 50,
+			expectedPromotions: map[string]int{"A": 2},
+			errString:          "",
+		},
+		{
+			name:               "No items",
+			items:              []string{},
+			expectedTotal:      0,
+			expectedPromotions: map[string]int{},
+			errString:          "",
+		},
+		{
+			name:               "Just below special offer threshold",
+			items:              []string{"A", "A", "B"},
+			expectedTotal:      130,
+			expectedPromotions: map[string]int{},
+			errString:          "",
 		},
 	}
 
@@ -80,8 +108,10 @@ func TestCheckout(t *testing.T) {
 		}
 
 		var output int
+		var promotions map[string]int
 		if err == nil {
 			output, err = checkout.GetTotalPrice()
+			promotions = checkout.GetAppliedPromotions()
 		}
 
 		if test.errString != "" && err == nil {
@@ -111,27 +141,50 @@ Test Failed: %s
  expected err: %v
  actual err: %v
 `, test.name, test.items, test.errString, err)
-		} else if output != test.expected {
+		} else if output != test.expectedTotal {
 			failCount++
 			t.Errorf(`
 ---------------------------------
 Test Failed: %s
  items: %v
- expected: %d
- actual: %d
-`, test.name, test.items, test.expected, output)
+ expected total: %d
+ actual total: %d
+`, test.name, test.items, test.expectedTotal, output)
+		} else if !mapsEqual(promotions, test.expectedPromotions) {
+			failCount++
+			t.Errorf(`
+---------------------------------
+Test Failed: %s
+ items: %v
+ expected promotions: %v
+ actual promotions: %v
+`, test.name, test.items, test.expectedPromotions, promotions)
 		} else {
 			passCount++
 			fmt.Printf(`
 ---------------------------------
 Test Passed: %s
  items: %v
- expected: %d
- actual: %d
-`, test.name, test.items, test.expected, output)
+ expected total: %d
+ actual total: %d
+ expected promotions: %v
+ actual promotions: %v
+`, test.name, test.items, test.expectedTotal, output, test.expectedPromotions, promotions)
 		}
 	}
 
 	fmt.Println("---------------------------------")
 	fmt.Printf("%d passed, %d failed\n", passCount, failCount)
+}
+
+func mapsEqual(map1, map2 map[string]int) bool {
+	if len(map1) != len(map2) {
+		return false
+	}
+	for k, v := range map1 {
+		if map2[k] != v {
+			return false
+		}
+	}
+	return true
 }
